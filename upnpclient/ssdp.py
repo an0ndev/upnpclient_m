@@ -33,28 +33,28 @@ def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
     ).encode("utf-8")
 
 
-def scan(timeout=5):
-    urls = []
-    sockets = []
+def scan(timeout=5) -> dict [str, list [Entry]]:
+    urls_for_local_addrs = {}
+    sockets = {}
     ssdp_requests = [ssdp_request(ST_ALL), ssdp_request(ST_ROOTDEVICE)]
     stop_wait = datetime.now() + timedelta(seconds=timeout)
 
-    for addr in get_addresses_ipv4():
+    for local_addr in get_addresses_ipv4():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, SSDP_MX)
-            sock.bind((addr, 0))
-            sockets.append(sock)
+            sock.bind((local_addr, 0))
+            sockets [sock] = local_addr
         except socket.error:
             pass
 
-    for sock in [s for s in sockets]:
+    for sock in sockets.keys ():
         try:
             for req in ssdp_requests:
                 sock.sendto(req, SSDP_TARGET)
             sock.setblocking(False)
         except socket.error:
-            sockets.remove(sock)
+            del sockets [sock]
             sock.close()
     try:
         while sockets:
@@ -63,7 +63,7 @@ def scan(timeout=5):
             if seconds_left <= 0:
                 break
 
-            ready = select.select(sockets, [], [], seconds_left)[0]
+            ready = select.select(sockets.keys (), [], [], seconds_left)[0]
 
             for sock in ready:
                 try:
@@ -78,20 +78,22 @@ def scan(timeout=5):
                     _getLogger(__name__).exception(
                         "Socket error while discovering SSDP devices"
                     )
-                    sockets.remove(sock)
+                    del sockets [sock]
                     sock.close()
                     continue
                 locations = re.findall(
                     r"LOCATION: *(?P<url>\S+)\s+", response, re.IGNORECASE
                 )
                 if locations and len(locations) > 0:
-                    urls.append(Entry(locations[0]))
+                    local_addr = sockets [sock]
+                    urls_for_local_addr = urls_for_local_addrs.setdefault (local_addr, [])
+                    urls_for_local_addr.append(Entry(locations[0]))
 
     finally:
-        for s in sockets:
+        for s in sockets.keys ():
             s.close()
 
-    return set(urls)
+    return urls_for_local_addrs
 
 
 def get_addresses_ipv4():
@@ -112,16 +114,17 @@ def get_addresses_ipv4():
 def discover(timeout=5):
     """
     Convenience method to discover UPnP devices on the network. Returns a
-    list of `upnp.Device` instances. Any invalid servers are silently
-    ignored.
+    list of tuples containing the local IP and a `upnp.Device` instance.
+    Any invalid servers are silently ignored.
     """
     devices = {}
-    for entry in scan(timeout):
-        if entry.location in devices:
-            continue
-        try:
-            devices[entry.location] = Device(entry.location)
-        except Exception as exc:
-            log = _getLogger("ssdp")
-            log.error("Error '%s' for %s", exc, entry)
+    for local_ip, entries in scan(timeout).items ():
+        for entry in entries:
+            if entry.location in devices:
+                continue
+            try:
+                devices[entry.location] = (local_ip, Device(entry.location))
+            except Exception as exc:
+                log = _getLogger("ssdp")
+                log.error("Error '%s' for %s", exc, entry)
     return list(devices.values())
