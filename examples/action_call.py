@@ -16,7 +16,7 @@ server = upnpclient.Server('http://192.168.1.1:37215/upnpdev.xml')
 
 action = server.find_action('GetGenericPortMappingEntry')
 response = action.call(NewPortMappingIndex=0)
-print response
+print (response)
 # Output: {u'NewPortMappingDescription': u'Transmission at 6881',
 #          u'NewLeaseDuration': 0, u'NewInternalClient': u'192.168.1.10',
 #          u'NewEnabled': True, u'NewExternalPort': 6881, u'NewRemoteHost': '',
@@ -25,10 +25,10 @@ print response
 # It's also possible to pass in a dictionary with the required parameters
 action = server.find_action('GetGenericPortMappingEntry')
 response = action.call({'NewPortMappingIndex': 0})
-print response
+print (response)
 
 # If we don't pass a required parameter, a UPNPError will be thrown
 try:
     response = action.call()
-except upnpclient.UPNPError, e:
-    print str(e)
+except upnpclient.UPNPError as e:
+    print (str (e))
